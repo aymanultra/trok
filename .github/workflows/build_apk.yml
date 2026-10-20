@@ -24,18 +24,13 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Scaffold Missing Gradle Wrapper & Native Android Files
+      - name: Scaffold & Configure Android Project
         run: |
-          echo "Locating project files..."
           if [ ! -d "lib" ]; then
             FOUND_LIB=$(find . -maxdepth 3 -type d -name "lib" | head -n 1)
             if [ -n "$FOUND_LIB" ]; then
               PROJ_DIR=$(dirname "$FOUND_LIB")
-              echo "Moving files from $PROJ_DIR to root..."
               cp -rn "$PROJ_DIR"/* . 2>/dev/null || true
-            else
-              echo "ERROR: You have not uploaded the 'lib' folder and project files to GitHub yet!"
-              exit 1
             fi
           fi
 
@@ -44,7 +39,9 @@ jobs:
           cp pubspec.yaml /tmp/trok_backup/
           cp android/app/src/main/AndroidManifest.xml /tmp/trok_backup/ 2>/dev/null || true
           cp -r android/app/src/main/res/mipmap-* /tmp/trok_backup/res/ 2>/dev/null || true
-          cp android/app/src/main/res/values/styles.xml /tmp/trok_backup/ 2>/dev/null || true
+
+          # Remove incomplete manual android build files so Flutter generates clean compatible ones
+          rm -rf android
 
           flutter create . --project-name trok --org com.trok.mediamanager --platforms=android
 
@@ -52,16 +49,26 @@ jobs:
           cp /tmp/trok_backup/pubspec.yaml pubspec.yaml
           [ -f /tmp/trok_backup/AndroidManifest.xml ] && cp /tmp/trok_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           cp -r /tmp/trok_backup/res/mipmap-* android/app/src/main/res/ 2>/dev/null || true
-          [ -f /tmp/trok_backup/styles.xml ] && cp /tmp/trok_backup/styles.xml android/app/src/main/res/values/styles.xml
 
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 28/g' android/app/build.gradle 2>/dev/null || true
-          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 28/g' android/app/build.gradle 2>/dev/null || true
+          # Ensure AndroidManifest has tools namespace if tools:ignore is used
+          if grep -q "tools:" android/app/src/main/AndroidManifest.xml && ! grep -q "xmlns:tools" android/app/src/main/AndroidManifest.xml; then
+            sed -i 's/<manifest /<manifest xmlns:tools="http:\/\/schemas.android.com\/tools" /' android/app/src/main/AndroidManifest.xml
+          fi
+
+          # Set minSdk to 28 in both Groovy and Kotlin DSL gradle files
+          for f in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 28/g' "$f"
+              sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 28/g' "$f"
+              sed -i 's/minSdkVersion(flutter.minSdkVersion)/minSdkVersion(28)/g' "$f"
+            fi
+          done
 
       - name: Install Dependencies
         run: flutter pub get
 
       - name: Build Release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --no-tree-shake-icons
 
       - name: Prepare Final Trok APK
         run: cp build/app/outputs/flutter-apk/app-release.apk Trok.apk
