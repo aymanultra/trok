@@ -24,7 +24,7 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Scaffold & Configure Android Project
+      - name: Scaffold & Fix Android Manifest for All Devices
         run: |
           if [ ! -d "lib" ]; then
             FOUND_LIB=$(find . -maxdepth 3 -type d -name "lib" | head -n 1)
@@ -37,40 +37,69 @@ jobs:
           mkdir -p /tmp/trok_backup/res
           cp -r lib /tmp/trok_backup/
           cp pubspec.yaml /tmp/trok_backup/
-          cp android/app/src/main/AndroidManifest.xml /tmp/trok_backup/ 2>/dev/null || true
           cp -r android/app/src/main/res/mipmap-* /tmp/trok_backup/res/ 2>/dev/null || true
 
-          # Remove incomplete manual android build files so Flutter generates clean compatible ones
+          # Remove manual android folder to generate a 100% valid Flutter Android structure
           rm -rf android
 
           flutter create . --project-name trok --org com.trok.mediamanager --platforms=android
 
           cp -r /tmp/trok_backup/lib/* lib/
           cp /tmp/trok_backup/pubspec.yaml pubspec.yaml
-          [ -f /tmp/trok_backup/AndroidManifest.xml ] && cp /tmp/trok_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           cp -r /tmp/trok_backup/res/mipmap-* android/app/src/main/res/ 2>/dev/null || true
 
-          # FIX: Remove deprecated package="..." attribute from AndroidManifest.xml
-          sed -i 's/package="[^"]*"//g' android/app/src/main/AndroidManifest.xml
+          # Write a clean, 100% valid AndroidManifest.xml with android:exported="true"
+          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools">
 
-          # Ensure AndroidManifest has tools namespace if tools:ignore is used
-          if grep -q "tools:" android/app/src/main/AndroidManifest.xml && ! grep -q "xmlns:tools" android/app/src/main/AndroidManifest.xml; then
-            sed -i 's/<manifest/<manifest xmlns:tools="http:\/\/schemas.android.com\/tools"/' android/app/src/main/AndroidManifest.xml
-          fi
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage"/>
 
-          # Set minSdk to 28 in both Groovy and Kotlin DSL gradle files
+              <application
+                  android:label="Trok"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:requestLegacyExternalStorage="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                        android:name="io.flutter.embedding.android.NormalTheme"
+                        android:resource="@style/NormalTheme"
+                        />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+              </application>
+          </manifest>
+          EOF
+
+          # Support Android 6.0+ (API 23) to Android 15+ so it parses on any phone
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
-              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 28/g' "$f"
-              sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 28/g' "$f"
-              sed -i 's/minSdkVersion(flutter.minSdkVersion)/minSdkVersion(28)/g' "$f"
+              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' "$f"
+              sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' "$f"
+              sed -i 's/minSdkVersion(flutter.minSdkVersion)/minSdkVersion(23)/g' "$f"
             fi
           done
 
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build Release APK
+      - name: Build Universal Release APK
         run: flutter build apk --release --no-tree-shake-icons
 
       - name: Prepare Final Trok APK
