@@ -1,13 +1,12 @@
-name: Build Trok APK
+name: Build Android Release APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build Android Release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -24,31 +23,39 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
 
       - name: Scaffold Missing Gradle Wrapper & Native Android Files
         run: |
-          echo "Backing up custom Trok code and assets..."
-          mkdir -p /tmp/trok_backup
+          echo "Locating project files..."
+          if [ ! -d "lib" ]; then
+            FOUND_LIB=$(find . -maxdepth 3 -type d -name "lib" | head -n 1)
+            if [ -n "$FOUND_LIB" ]; then
+              PROJ_DIR=$(dirname "$FOUND_LIB")
+              echo "Moving files from $PROJ_DIR to root..."
+              cp -rn "$PROJ_DIR"/* . 2>/dev/null || true
+            else
+              echo "ERROR: You have not uploaded the 'lib' folder and project files to GitHub yet!"
+              exit 1
+            fi
+          fi
+
+          mkdir -p /tmp/trok_backup/res
           cp -r lib /tmp/trok_backup/
           cp pubspec.yaml /tmp/trok_backup/
-          cp android/app/src/main/AndroidManifest.xml /tmp/trok_backup/
-          cp -r android/app/src/main/res /tmp/trok_backup/
-          cp android/app/build.gradle /tmp/trok_backup/
+          cp android/app/src/main/AndroidManifest.xml /tmp/trok_backup/ 2>/dev/null || true
+          cp -r android/app/src/main/res/mipmap-* /tmp/trok_backup/res/ 2>/dev/null || true
+          cp android/app/src/main/res/values/styles.xml /tmp/trok_backup/ 2>/dev/null || true
 
-          echo "Running flutter create to generate complete gradlew and Android wrappers..."
           flutter create . --project-name trok --org com.trok.mediamanager --platforms=android
 
-          echo "Restoring custom Trok source code, manifest, build.gradle, and icons..."
-          rm -rf lib/*
           cp -r /tmp/trok_backup/lib/* lib/
           cp /tmp/trok_backup/pubspec.yaml pubspec.yaml
-          cp /tmp/trok_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
-          cp -r /tmp/trok_backup/res/* android/app/src/main/res/
-          cp /tmp/trok_backup/build.gradle android/app/build.gradle
+          [ -f /tmp/trok_backup/AndroidManifest.xml ] && cp /tmp/trok_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          cp -r /tmp/trok_backup/res/mipmap-* android/app/src/main/res/ 2>/dev/null || true
+          [ -f /tmp/trok_backup/styles.xml ] && cp /tmp/trok_backup/styles.xml android/app/src/main/res/values/styles.xml
 
-          echo "Setting permissions for Gradle wrapper..."
-          chmod +x android/gradlew
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 28/g' android/app/build.gradle 2>/dev/null || true
+          sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 28/g' android/app/build.gradle 2>/dev/null || true
 
       - name: Install Dependencies
         run: flutter pub get
@@ -57,13 +64,10 @@ jobs:
         run: flutter build apk --release
 
       - name: Prepare Final Trok APK
-        run: |
-          cp build/app/outputs/flutter-apk/app-release.apk ./Trok.apk
-          ls -lh Trok.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk Trok.apk
 
       - name: Upload Trok APK to GitHub Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Trok-APK
           path: Trok.apk
-          if-no-files-found: error
