@@ -50,9 +50,12 @@ jobs:
           [ -f /tmp/trok_backup/AndroidManifest.xml ] && cp /tmp/trok_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           cp -r /tmp/trok_backup/res/mipmap-* android/app/src/main/res/ 2>/dev/null || true
 
+          # FIX: Remove deprecated package="..." attribute from AndroidManifest.xml
+          sed -i 's/package="[^"]*"//g' android/app/src/main/AndroidManifest.xml
+
           # Ensure AndroidManifest has tools namespace if tools:ignore is used
           if grep -q "tools:" android/app/src/main/AndroidManifest.xml && ! grep -q "xmlns:tools" android/app/src/main/AndroidManifest.xml; then
-            sed -i 's/<manifest /<manifest xmlns:tools="http:\/\/schemas.android.com\/tools" /' android/app/src/main/AndroidManifest.xml
+            sed -i 's/<manifest/<manifest xmlns:tools="http:\/\/schemas.android.com\/tools"/' android/app/src/main/AndroidManifest.xml
           fi
 
           # Set minSdk to 28 in both Groovy and Kotlin DSL gradle files
